@@ -6,6 +6,7 @@ export interface VoiceOption {
   name: string;
   lang: string;
   voiceURI: string;
+  premium: boolean;
 }
 
 interface UseTTSReturn {
@@ -20,18 +21,45 @@ interface UseTTSReturn {
   stop: () => void;
 }
 
+// Premium macOS voices (need to be downloaded in System Settings → Accessibility → Spoken Content → Manage Voices)
+const PREMIUM_VOICES = new Set([
+  "Daniel",     // en-GB — warm British male ★ best for Bible
+  "Oliver",     // en-GB — British male
+  "Serena",     // en-GB — British female
+  "Kate",       // en-GB — British female
+  "Stephanie",  // en-GB — British female
+  "Fiona",      // en-GB — Scottish female
+  "Moira",      // en-GB — Irish female
+  "Samantha",   // en-US — smooth American female
+  "Alex",       // en-US — American male
+  "Tom",        // en-US — American male
+  "Ava",        // en-US — American female
+  "Allison",    // en-US — American female
+  "Susan",      // en-US — American female
+  "Zoe",        // en-US — American female
+  "Karen",      // en-AU — Australian female
+  "Lee",        // en-AU — Australian male
+  "Veena",      // en-IN — Indian female
+  "Rishi",      // en-IN — Indian male
+]);
+
+function isPremium(name: string): boolean {
+  return PREMIUM_VOICES.has(name);
+}
+
+function voiceScore(v: SpeechSynthesisVoice): number {
+  let score = 0;
+  if (v.name === "Daniel" && v.lang === "en-GB") score += 1000; // best
+  if (isPremium(v.name)) score += 500;
+  if (v.lang === "en-GB") score += 300;
+  if (v.lang.startsWith("en")) score += 200;
+  if (v.localService) score += 100;
+  return score;
+}
+
 function pickBestVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
-  // Prefer British Daniel (macOS) — natural, warm
-  let v = voices.find((v) => v.name === "Daniel" && v.lang === "en-GB");
-  if (v) return v;
-  // Then any en-GB
-  v = voices.find((v) => v.lang === "en-GB");
-  if (v) return v;
-  // Then US Samantha
-  v = voices.find((v) => v.name.includes("Samantha"));
-  if (v) return v;
-  // Any English
-  return voices.find((v) => v.lang.startsWith("en")) ?? null;
+  const sorted = [...voices].sort((a, b) => voiceScore(b) - voiceScore(a));
+  return sorted[0] ?? null;
 }
 
 export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn {
@@ -53,24 +81,31 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
 
     const load = () => {
       const all = synthRef.current?.getVoices() ?? [];
-      const englishVoices = all
-        .filter((v) => v.lang.startsWith("en"))
+      // Show all voices, ranked by quality score
+      const ranked = all
         .map((v) => ({
           name: v.name,
           lang: v.lang,
           voiceURI: v.voiceURI,
-        }));
-      setVoices(englishVoices);
+          premium: isPremium(v.name),
+        }))
+        .map((v) => ({
+          ...v,
+          _score: voiceScore(all.find((a) => a.voiceURI === v.voiceURI)!),
+        }))
+        .sort((a, b) => b._score - a._score)
+        .map(({ _score, ...v }) => v);
+      setVoices(ranked);
 
       // Set default if not already chosen
       if (!voiceRef.current) {
         const stored = localStorage.getItem("bible-tts-voice");
-        if (stored && englishVoices.find((v) => v.voiceURI === stored)) {
+        if (stored && ranked.find((v) => v.voiceURI === stored)) {
           voiceRef.current = stored;
           setSelectedVoiceState(stored);
         } else {
           const best = pickBestVoice(all);
-          const uri = best?.voiceURI ?? englishVoices[0]?.voiceURI ?? "";
+          const uri = best?.voiceURI ?? ranked[0]?.voiceURI ?? "";
           voiceRef.current = uri;
           setSelectedVoiceState(uri);
         }

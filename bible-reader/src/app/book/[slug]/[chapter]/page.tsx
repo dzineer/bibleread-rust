@@ -126,7 +126,7 @@ export default function ChapterPage() {
               >
                 {tts.voices.map((v) => (
                   <option key={v.voiceURI} value={v.voiceURI}>
-                    {v.name}
+                    {v.premium ? "✦ " : ""}{v.name} ({v.lang})
                   </option>
                 ))}
               </select>
