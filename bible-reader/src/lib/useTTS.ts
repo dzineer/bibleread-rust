@@ -153,7 +153,8 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
         return;
       }
 
-      synthRef.current.cancel();
+      // Don't cancel between verses — it races with Chrome's speech queue.
+      // Only cancel on explicit Stop.
 
       const utterance = new SpeechSynthesisUtterance(verse.text);
       utterance.rate = 0.88;
@@ -206,23 +207,16 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
         }
       };
 
-      // Chrome quirk: need a tick between cancel() and speak()
-      setTimeout(() => {
-        synthRef.current?.speak(utterance);
-      }, 80);
+      synthRef.current.speak(utterance);
     },
     [verses]
   );
 
   const play = useCallback(() => {
     if (!synthRef.current) return;
-    // Prime the voice list — Chrome may need a fresh getVoices() call
-    synthRef.current.getVoices();
+    synthRef.current.getVoices(); // prime voice list
     setPlaying(true);
-    // Small delay to ensure cancel() from any previous session is flushed
-    setTimeout(() => {
-      speakVerse(verseIndexRef.current);
-    }, 100);
+    speakVerse(verseIndexRef.current);
   }, [speakVerse]);
 
   const pause = useCallback(() => {
