@@ -11,6 +11,7 @@ export interface VoiceOption {
 
 interface UseTTSReturn {
   supported: boolean;
+  voicesReady: boolean;
   playing: boolean;
   currentVerse: number | null;
   voices: VoiceOption[];
@@ -69,6 +70,7 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
   const [playing, setPlaying] = useState(false);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
   const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [voicesReady, setVoicesReady] = useState(false);
   const [selectedVoice, setSelectedVoiceState] = useState<string>("");
   const verseIndexRef = useRef(0);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -96,6 +98,7 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
         .sort((a, b) => b._score - a._score)
         .map(({ _score, ...v }) => v);
       setVoices(ranked);
+      setVoicesReady(true);
 
       // Set default if not already chosen
       if (!voiceRef.current) {
@@ -148,9 +151,22 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
       utterance.pitch = 1;
       utterance.volume = 1;
 
+      // Pick voice: use selected, fall back to any available
       const allVoices = synthRef.current.getVoices();
-      const chosen = allVoices.find((v) => v.voiceURI === voiceRef.current);
-      if (chosen) utterance.voice = chosen;
+      let chosen: SpeechSynthesisVoice | undefined =
+        allVoices.find((v) => v.voiceURI === voiceRef.current);
+      if (!chosen) {
+        chosen = pickBestVoice(allVoices) ?? undefined;
+      }
+      if (!chosen && allVoices.length > 0) {
+        chosen = allVoices[0];
+      }
+      if (chosen) {
+        utterance.voice = chosen;
+        console.log(`TTS: using voice "${chosen.name}" (${chosen.lang})`);
+      } else {
+        console.warn("TTS: no voices available on this system");
+      }
 
       setCurrentVerse(verse.number);
 
@@ -190,6 +206,7 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
 
   return {
     supported,
+    voicesReady,
     playing,
     currentVerse,
     voices,
