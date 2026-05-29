@@ -193,6 +193,89 @@ export default function ChapterPage() {
   );
 }
 
+type TextSegment =
+  | { type: "text"; value: string }
+  | { type: "marker"; superscript: string; note: FootnoteDetail | null; key: string };
+
+function buildSegments(verse: Verse): TextSegment[] {
+  const text = verse.text;
+  const markers = [...verse.markers];
+  const footnoteMap = new Map(verse.footnotes.map((f) => [f.superscript, f]));
+
+  if (markers.length === 0) {
+    return [{ type: "text", value: text }];
+  }
+
+  // Build positions by scanning the text left-to-right,
+  // matching marker words at the first occurrence after the cursor.
+  interface MarkerPos {
+    index: number;
+    superscript: string;
+    word: string;
+  }
+
+  const positions: MarkerPos[] = [];
+  // We need to match each marker to its position in order.
+  // Sort markers by the order they appear in the text (find each word from current search position).
+  const remaining = [...markers];
+  let searchFrom = 0;
+
+  while (remaining.length > 0) {
+    let bestMatch: { idx: number; m: (typeof remaining)[0] } | null = null;
+
+    for (const m of remaining) {
+      const idx = text.indexOf(m.word, searchFrom);
+      if (idx !== -1 && (bestMatch === null || idx < bestMatch.idx)) {
+        bestMatch = { idx, m };
+      }
+    }
+
+    if (bestMatch === null) break;
+
+    positions.push({
+      index: bestMatch.idx,
+      superscript: bestMatch.m.superscript,
+      word: bestMatch.m.word,
+    });
+
+    // Remove matched marker and advance search
+    remaining.splice(
+      remaining.findIndex(
+        (m) => m.superscript === bestMatch!.m.superscript && m.word === bestMatch!.m.word
+      ),
+      1
+    );
+    searchFrom = bestMatch.idx + bestMatch.m.word.length;
+  }
+
+  // Sort positions by index
+  positions.sort((a, b) => a.index - b.index);
+
+  // Build segments
+  const segments: TextSegment[] = [];
+  let cursor = 0;
+
+  for (const pos of positions) {
+    if (pos.index > cursor) {
+      segments.push({ type: "text", value: text.slice(cursor, pos.index) });
+    }
+    const key = `${verse.number}_${pos.superscript}_${pos.index}`;
+    segments.push({
+      type: "marker",
+      superscript: pos.superscript,
+      note: footnoteMap.get(pos.superscript) ?? null,
+      key,
+    });
+    cursor = pos.index + pos.word.length;
+  }
+
+  if (cursor < text.length) {
+    segments.push({ type: "text", value: text.slice(cursor) });
+  }
+
+  return segments;
+}
+
 function VerseBlock({
   verse,
   onFootnoteClick,
@@ -200,30 +283,34 @@ function VerseBlock({
   verse: Verse;
   onFootnoteClick: (note: FootnoteDetail, el: HTMLElement) => void;
 }) {
+  const segments = buildSegments(verse);
+
   return (
     <div className="group py-2 px-3 -mx-3 rounded-lg hover:bg-stone-100/50 transition-colors">
       <div className="flex gap-3">
         <span className="text-xs text-stone-300 font-mono mt-1 shrink-0 w-5 text-right select-none">
           {verse.number}
         </span>
-        <div>
-          <p className="text-base leading-relaxed text-stone-800">
-            {verse.text}
-          </p>
-          {verse.footnotes.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {verse.footnotes.map((note) => (
-                <button
-                  key={note.anchor}
-                  onClick={(e) => onFootnoteClick(note, e.currentTarget)}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-stone-200/70 hover:bg-stone-300/80 text-[11px] text-stone-500 font-mono transition-colors"
-                >
-                  {note.superscript}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <p className="text-base leading-relaxed text-stone-800">
+          {segments.map((seg) => {
+            if (seg.type === "text") {
+              return <span key={seg.value.slice(0, 20)}>{seg.value}</span>;
+            }
+            return seg.note ? (
+              <button
+                key={seg.key}
+                onClick={(e) => onFootnoteClick(seg.note!, e.currentTarget)}
+                className="text-[10px] text-stone-500 hover:text-stone-800 font-mono align-super leading-none transition-colors"
+              >
+                {seg.superscript}
+              </button>
+            ) : (
+              <sup key={seg.key} className="text-[10px] text-stone-400 font-mono">
+                {seg.superscript}
+              </sup>
+            );
+          })}
+        </p>
       </div>
     </div>
   );
