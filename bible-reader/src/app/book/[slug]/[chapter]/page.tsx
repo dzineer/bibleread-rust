@@ -17,16 +17,22 @@ function abbrSlug(abbr: string) {
   return abbr.toLowerCase().replace(/[.\s]/g, "-").replace(/-+$/, "");
 }
 
+function isFootnote(superscript: string): boolean {
+  return /^\d/.test(superscript);
+}
+
 export default function ChapterPage() {
   const { slug, chapter } = useParams<{ slug: string; chapter: string }>();
   const router = useRouter();
   const [book, setBook] = useState<BookIndex | null>(null);
   const [data, setData] = useState<Chapter | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeNote, setActiveNote] = useState<FootnoteDetail | null>(null);
+  const [pinnedNote, setPinnedNote] = useState<FootnoteDetail | null>(null);
+  const [hoveredNote, setHoveredNote] = useState<FootnoteDetail | null>(null);
   const [notePos, setNotePos] = useState({ x: 0, y: 0 });
 
   const chNum = parseInt(chapter);
+  const activeNote = pinnedNote ?? hoveredNote;
 
   useEffect(() => {
     getBookIndex().then((books) => {
@@ -61,6 +67,18 @@ export default function ChapterPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [goTo]);
+
+  // Close popover on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPinnedNote(null);
+        setHoveredNote(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   if (!book || loading) {
     return (
@@ -129,10 +147,20 @@ export default function ChapterPage() {
             >
               <VerseBlock
                 verse={verse}
+                onFootnoteHover={(note, el) => {
+                  const rect = el.getBoundingClientRect();
+                  setNotePos({ x: rect.left, y: rect.bottom + 4 });
+                  setHoveredNote(note);
+                }}
+                onFootnoteLeave={() => {
+                  setHoveredNote(null);
+                }}
                 onFootnoteClick={(note, el) => {
                   const rect = el.getBoundingClientRect();
                   setNotePos({ x: rect.left, y: rect.bottom + 4 });
-                  setActiveNote(activeNote?.anchor === note.anchor ? null : note);
+                  setPinnedNote(
+                    pinnedNote?.anchor === note.anchor ? null : note
+                  );
                 }}
               />
             </motion.div>
@@ -148,24 +176,50 @@ export default function ChapterPage() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 5, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="fixed z-50 max-w-sm bg-stone-800 text-stone-100 rounded-xl shadow-2xl p-4 text-sm leading-relaxed"
+            className={`fixed z-50 max-w-sm rounded-xl shadow-2xl text-sm leading-relaxed overflow-hidden ${
+              isFootnote(activeNote.superscript)
+                ? "bg-blue-950 border-l-4 border-blue-400"
+                : "bg-purple-950 border-l-4 border-purple-400"
+            }`}
             style={{
               left: Math.min(notePos.x, window.innerWidth - 360),
               top: notePos.y,
             }}
-            onClick={() => setActiveNote(null)}
           >
-            <div className="flex items-center gap-2 mb-2 text-stone-400 text-xs">
-              <span className="bg-stone-700 px-1.5 py-0.5 rounded font-mono">
+            {/* Header bar */}
+            <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+              <span
+                className={`px-1.5 py-0.5 rounded text-xs font-mono font-bold ${
+                  isFootnote(activeNote.superscript)
+                    ? "bg-blue-500/20 text-blue-300"
+                    : "bg-purple-500/20 text-purple-300"
+                }`}
+              >
                 {activeNote.superscript}
               </span>
-              <span className="font-medium text-stone-300">
+              <span className="text-xs text-stone-400 font-medium">
                 {activeNote.word}
               </span>
-              <span className="ml-auto">{activeNote.verse_ref}</span>
+              <span className="ml-auto text-[10px] text-stone-500 font-mono">
+                {activeNote.verse_ref}
+              </span>
+              {pinnedNote && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPinnedNote(null);
+                  }}
+                  className="text-stone-500 hover:text-stone-300 text-xs ml-1"
+                  title="Close (Esc)"
+                >
+                  ✕
+                </button>
+              )}
             </div>
+
+            {/* Body */}
             <div
-              className="text-stone-200"
+              className="px-4 pb-4 text-stone-200 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:text-blue-300 [&_a]:underline [&_i]:italic"
               dangerouslySetInnerHTML={{ __html: activeNote.text }}
             />
           </motion.div>
@@ -206,8 +260,6 @@ function buildSegments(verse: Verse): TextSegment[] {
     return [{ type: "text", value: text }];
   }
 
-  // Build positions by scanning the text left-to-right,
-  // matching marker words at the first occurrence after the cursor.
   interface MarkerPos {
     index: number;
     superscript: string;
@@ -215,8 +267,6 @@ function buildSegments(verse: Verse): TextSegment[] {
   }
 
   const positions: MarkerPos[] = [];
-  // We need to match each marker to its position in order.
-  // Sort markers by the order they appear in the text (find each word from current search position).
   const remaining = [...markers];
   let searchFrom = 0;
 
@@ -238,20 +288,19 @@ function buildSegments(verse: Verse): TextSegment[] {
       word: bestMatch.m.word,
     });
 
-    // Remove matched marker and advance search
     remaining.splice(
       remaining.findIndex(
-        (m) => m.superscript === bestMatch!.m.superscript && m.word === bestMatch!.m.word
+        (m) =>
+          m.superscript === bestMatch!.m.superscript &&
+          m.word === bestMatch!.m.word
       ),
       1
     );
     searchFrom = bestMatch.idx + bestMatch.m.word.length;
   }
 
-  // Sort positions by index
   positions.sort((a, b) => a.index - b.index);
 
-  // Build segments
   const segments: TextSegment[] = [];
   let cursor = 0;
 
@@ -278,9 +327,13 @@ function buildSegments(verse: Verse): TextSegment[] {
 
 function VerseBlock({
   verse,
+  onFootnoteHover,
+  onFootnoteLeave,
   onFootnoteClick,
 }: {
   verse: Verse;
+  onFootnoteHover: (note: FootnoteDetail, el: HTMLElement) => void;
+  onFootnoteLeave: () => void;
   onFootnoteClick: (note: FootnoteDetail, el: HTMLElement) => void;
 }) {
   const segments = buildSegments(verse);
@@ -292,20 +345,34 @@ function VerseBlock({
           {verse.number}
         </span>
         <p className="text-base leading-relaxed text-stone-800">
-          {segments.map((seg) => {
+          {segments.map((seg, i) => {
             if (seg.type === "text") {
-              return <span key={seg.value.slice(0, 20)}>{seg.value}</span>;
+              return <span key={`t${i}`}>{seg.value}</span>;
             }
+            const fn = isFootnote(seg.superscript);
             return seg.note ? (
               <button
                 key={seg.key}
+                onMouseEnter={(e) =>
+                  onFootnoteHover(seg.note!, e.currentTarget)
+                }
+                onMouseLeave={onFootnoteLeave}
                 onClick={(e) => onFootnoteClick(seg.note!, e.currentTarget)}
-                className="text-[10px] text-stone-500 hover:text-stone-800 font-mono align-super leading-none transition-colors"
+                className={`text-[11px] font-mono align-super leading-none transition-colors ${
+                  fn
+                    ? "text-blue-500 hover:text-blue-700"
+                    : "text-purple-500 hover:text-purple-700"
+                }`}
               >
                 {seg.superscript}
               </button>
             ) : (
-              <sup key={seg.key} className="text-[10px] text-stone-400 font-mono">
+              <sup
+                key={seg.key}
+                className={`text-[11px] font-mono ${
+                  fn ? "text-blue-400" : "text-purple-400"
+                }`}
+              >
                 {seg.superscript}
               </sup>
             );
