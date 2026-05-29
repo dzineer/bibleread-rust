@@ -2,13 +2,36 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
+export interface VoiceOption {
+  name: string;
+  lang: string;
+  voiceURI: string;
+}
+
 interface UseTTSReturn {
   supported: boolean;
   playing: boolean;
   currentVerse: number | null;
+  voices: VoiceOption[];
+  selectedVoice: string;
+  setSelectedVoice: (uri: string) => void;
   play: () => void;
   pause: () => void;
   stop: () => void;
+}
+
+function pickBestVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  // Prefer British Daniel (macOS) — natural, warm
+  let v = voices.find((v) => v.name === "Daniel" && v.lang === "en-GB");
+  if (v) return v;
+  // Then any en-GB
+  v = voices.find((v) => v.lang === "en-GB");
+  if (v) return v;
+  // Then US Samantha
+  v = voices.find((v) => v.name.includes("Samantha"));
+  if (v) return v;
+  // Any English
+  return voices.find((v) => v.lang.startsWith("en")) ?? null;
 }
 
 export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn {
@@ -17,15 +40,55 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
   );
   const [playing, setPlaying] = useState(false);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [selectedVoice, setSelectedVoiceState] = useState<string>("");
   const verseIndexRef = useRef(0);
   const synthRef = useRef<SpeechSynthesis | null>(null);
+  const voiceRef = useRef<string>("");
 
-  // Initialize speech synthesis ref
+  // Load voices
   useEffect(() => {
-    if (supported) {
-      synthRef.current = window.speechSynthesis;
-    }
+    if (!supported) return;
+    synthRef.current = window.speechSynthesis;
+
+    const load = () => {
+      const all = synthRef.current?.getVoices() ?? [];
+      const englishVoices = all
+        .filter((v) => v.lang.startsWith("en"))
+        .map((v) => ({
+          name: v.name,
+          lang: v.lang,
+          voiceURI: v.voiceURI,
+        }));
+      setVoices(englishVoices);
+
+      // Set default if not already chosen
+      if (!voiceRef.current) {
+        const stored = localStorage.getItem("bible-tts-voice");
+        if (stored && englishVoices.find((v) => v.voiceURI === stored)) {
+          voiceRef.current = stored;
+          setSelectedVoiceState(stored);
+        } else {
+          const best = pickBestVoice(all);
+          const uri = best?.voiceURI ?? englishVoices[0]?.voiceURI ?? "";
+          voiceRef.current = uri;
+          setSelectedVoiceState(uri);
+        }
+      }
+    };
+
+    load();
+    synthRef.current.onvoiceschanged = load;
+    return () => {
+      if (synthRef.current) synthRef.current.onvoiceschanged = null;
+    };
   }, [supported]);
+
+  const setSelectedVoice = useCallback((uri: string) => {
+    voiceRef.current = uri;
+    setSelectedVoiceState(uri);
+    localStorage.setItem("bible-tts-voice", uri);
+  }, []);
 
   const speakVerse = useCallback(
     (index: number) => {
@@ -46,17 +109,13 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
       synthRef.current.cancel();
 
       const utterance = new SpeechSynthesisUtterance(verse.text);
-      utterance.rate = 0.9;
+      utterance.rate = 0.88;
       utterance.pitch = 1;
       utterance.volume = 1;
 
-      // Try to find a good English voice
-      const voices = synthRef.current.getVoices();
-      const englishVoice =
-        voices.find((v) => v.lang === "en-US" && v.name.includes("Samantha")) ??
-        voices.find((v) => v.lang === "en-US") ??
-        voices.find((v) => v.lang.startsWith("en"));
-      if (englishVoice) utterance.voice = englishVoice;
+      const allVoices = synthRef.current.getVoices();
+      const chosen = allVoices.find((v) => v.voiceURI === voiceRef.current);
+      if (chosen) utterance.voice = chosen;
 
       setCurrentVerse(verse.number);
 
@@ -66,7 +125,6 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
       };
 
       utterance.onerror = () => {
-        // Skip on error and try next verse
         verseIndexRef.current = index + 1;
         speakVerse(index + 1);
       };
@@ -75,22 +133,6 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
     },
     [verses]
   );
-
-  // Ensure voices are loaded (Chrome loads them async)
-  useEffect(() => {
-    if (supported && synthRef.current) {
-      const loadVoices = () => {
-        synthRef.current?.getVoices();
-      };
-      loadVoices();
-      synthRef.current.onvoiceschanged = loadVoices;
-      return () => {
-        if (synthRef.current) {
-          synthRef.current.onvoiceschanged = null;
-        }
-      };
-    }
-  }, [supported]);
 
   const play = useCallback(() => {
     if (!synthRef.current) return;
@@ -111,5 +153,15 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
     verseIndexRef.current = 0;
   }, []);
 
-  return { supported, playing, currentVerse, play, pause, stop };
+  return {
+    supported,
+    playing,
+    currentVerse,
+    voices,
+    selectedVoice,
+    setSelectedVoice,
+    play,
+    pause,
+    stop,
+  };
 }
