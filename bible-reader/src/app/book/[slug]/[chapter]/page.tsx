@@ -35,7 +35,7 @@ export default function ChapterPage() {
   const chNum = parseInt(chapter);
   const activeNote = pinnedNote ?? hoveredNote;
 
-  // TTS
+  // TTS — uses browser default voice
   const verseTexts =
     data?.verses.map((v) => ({ number: v.number, text: v.text })) ?? [];
   const tts = useTTS(verseTexts);
@@ -116,32 +116,15 @@ export default function ChapterPage() {
 
         {/* TTS controls */}
         {tts.supported && (
-          <div className="flex items-center gap-2">
-            {/* Voice selector */}
-            {tts.voices.length > 0 && (
-              <select
-                value={tts.selectedVoice}
-                onChange={(e) => tts.setSelectedVoice(e.target.value)}
-                className="text-xs bg-stone-100 border border-stone-200 rounded-lg px-2 py-1.5 text-stone-600 max-w-[120px] truncate"
-              >
-                {tts.voices.map((v) => (
-                  <option key={v.voiceURI} value={v.voiceURI}>
-                    {v.premium ? "✦ " : ""}{v.name} ({v.lang})
-                  </option>
-                ))}
-              </select>
-            )}
+          <div className="flex items-center gap-1">
             {!tts.playing ? (
               <button
                 onClick={tts.play}
-                disabled={!tts.voicesReady}
-                className={`px-3 py-1.5 text-sm rounded-lg bg-stone-800 text-white hover:bg-stone-700 transition-all flex items-center gap-1.5 shrink-0 ${
-                  !tts.voicesReady ? "opacity-50 cursor-wait" : ""
-                }`}
-                title={tts.voicesReady ? "Read aloud" : "Loading voices…"}
+                className="px-3 py-1.5 text-sm rounded-lg bg-stone-800 text-white hover:bg-stone-700 transition-all flex items-center gap-1.5 shrink-0"
+                title="Read aloud"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>
-                {tts.voicesReady ? "Read" : "Voices…"}
+                Read
               </button>
             ) : (
               <>
