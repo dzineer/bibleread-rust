@@ -83,7 +83,8 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
 
     const load = () => {
       const all = synthRef.current?.getVoices() ?? [];
-      // Show all voices, ranked by quality score
+      // Show all voices, ranked by quality score, deduplicated by voiceURI
+      const seen = new Set<string>();
       const ranked = all
         .map((v) => ({
           name: v.name,
@@ -91,6 +92,11 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
           voiceURI: v.voiceURI,
           premium: isPremium(v.name),
         }))
+        .filter((v) => {
+          if (seen.has(v.voiceURI)) return false;
+          seen.add(v.voiceURI);
+          return true;
+        })
         .map((v) => ({
           ...v,
           _score: voiceScore(all.find((a) => a.voiceURI === v.voiceURI)!),

@@ -124,8 +124,8 @@ export default function ChapterPage() {
                 onChange={(e) => tts.setSelectedVoice(e.target.value)}
                 className="text-xs bg-stone-100 border border-stone-200 rounded-lg px-2 py-1.5 text-stone-600 max-w-[120px] truncate"
               >
-                {tts.voices.map((v, i) => (
-                  <option key={`${v.voiceURI}_${i}`} value={v.voiceURI}>
+                {tts.voices.map((v) => (
+                  <option key={v.voiceURI} value={v.voiceURI}>
                     {v.premium ? "✦ " : ""}{v.name} ({v.lang})
                   </option>
                 ))}
