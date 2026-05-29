@@ -8,6 +8,9 @@ bible-reader/.next/
 # Data (too large for git)
 data/
 
+# Symlink to data directory
+bible-reader/public/data
+
 # OS
 .DS_Store
 Thumbs.db
