@@ -104,7 +104,10 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
         .sort((a, b) => b._score - a._score)
         .map(({ _score, ...v }) => v);
       setVoices(ranked);
-      setVoicesReady(true);
+      // Only mark ready if we actually have voices
+      if (ranked.length > 0) {
+        setVoicesReady(true);
+      }
 
       // Set default if not already chosen
       if (!voiceRef.current) {
@@ -169,32 +172,57 @@ export function useTTS(verses: { number: number; text: string }[]): UseTTSReturn
       }
       if (chosen) {
         utterance.voice = chosen;
-        console.log(`TTS: using voice "${chosen.name}" (${chosen.lang})`);
-      } else {
-        console.warn("TTS: no voices available on this system");
       }
 
       setCurrentVerse(verse.number);
+
+      let started = false;
+      utterance.onstart = () => {
+        started = true;
+      };
 
       utterance.onend = () => {
         verseIndexRef.current = index + 1;
         speakVerse(index + 1);
       };
 
-      utterance.onerror = () => {
-        verseIndexRef.current = index + 1;
-        speakVerse(index + 1);
+      utterance.onerror = (e) => {
+        if (!started) {
+          console.warn(
+            `TTS: failed to start verse ${verse.number} — "${e.error}". Retrying without voice preference...`
+          );
+          // Retry without a specific voice — some voices fail to load
+          const fallback = new SpeechSynthesisUtterance(verse.text);
+          fallback.rate = 0.88;
+          fallback.onend = utterance.onend;
+          fallback.onerror = () => {
+            verseIndexRef.current = index + 1;
+            speakVerse(index + 1);
+          };
+          setTimeout(() => synthRef.current?.speak(fallback), 100);
+        } else {
+          verseIndexRef.current = index + 1;
+          speakVerse(index + 1);
+        }
       };
 
-      synthRef.current.speak(utterance);
+      // Chrome quirk: need a tick between cancel() and speak()
+      setTimeout(() => {
+        synthRef.current?.speak(utterance);
+      }, 80);
     },
     [verses]
   );
 
   const play = useCallback(() => {
     if (!synthRef.current) return;
+    // Prime the voice list — Chrome may need a fresh getVoices() call
+    synthRef.current.getVoices();
     setPlaying(true);
-    speakVerse(verseIndexRef.current);
+    // Small delay to ensure cancel() from any previous session is flushed
+    setTimeout(() => {
+      speakVerse(verseIndexRef.current);
+    }, 100);
   }, [speakVerse]);
 
   const pause = useCallback(() => {
