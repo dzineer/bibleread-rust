@@ -1,0 +1,22 @@
+# Rust
+bible-extractor/target/
+
+# Node
+bible-reader/node_modules/
+bible-reader/.next/
+
+# Data (too large for git)
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Reasonix
+.reasonix/
