@@ -12,6 +12,7 @@ import {
   getBookIndex,
   getChapter,
 } from "@/lib/data";
+import { useTTS } from "@/lib/useTTS";
 
 function abbrSlug(abbr: string) {
   return abbr.toLowerCase().replace(/[.\s]/g, "-").replace(/-+$/, "");
@@ -33,6 +34,11 @@ export default function ChapterPage() {
 
   const chNum = parseInt(chapter);
   const activeNote = pinnedNote ?? hoveredNote;
+
+  // TTS
+  const verseTexts =
+    data?.verses.map((v) => ({ number: v.number, text: v.text })) ?? [];
+  const tts = useTTS(verseTexts);
 
   useEffect(() => {
     getBookIndex().then((books) => {
@@ -107,6 +113,41 @@ export default function ChapterPage() {
             Chapter {chNum}
           </h2>
         </div>
+
+        {/* TTS controls */}
+        {tts.supported && (
+          <div className="flex items-center gap-1">
+            {!tts.playing ? (
+              <button
+                onClick={tts.play}
+                className="px-3 py-1.5 text-sm rounded-lg bg-stone-800 text-white hover:bg-stone-700 transition-all flex items-center gap-1.5"
+                title="Read aloud"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>
+                Read
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={tts.pause}
+                  className="px-3 py-1.5 text-sm rounded-lg bg-amber-500 text-white hover:bg-amber-400 transition-all flex items-center gap-1.5"
+                  title="Pause"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                  Pause
+                </button>
+                <button
+                  onClick={tts.stop}
+                  className="px-3 py-1.5 text-sm rounded-lg border border-stone-300 bg-white hover:bg-stone-100 transition-all"
+                  title="Stop"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-1">
           <button
             onClick={() => goTo(-1)}
@@ -147,6 +188,7 @@ export default function ChapterPage() {
             >
               <VerseBlock
                 verse={verse}
+                isReading={tts.currentVerse === verse.number}
                 onFootnoteHover={(note, el) => {
                   const rect = el.getBoundingClientRect();
                   setNotePos({ x: rect.left, y: rect.bottom + 4 });
@@ -327,11 +369,13 @@ function buildSegments(verse: Verse): TextSegment[] {
 
 function VerseBlock({
   verse,
+  isReading,
   onFootnoteHover,
   onFootnoteLeave,
   onFootnoteClick,
 }: {
   verse: Verse;
+  isReading: boolean;
   onFootnoteHover: (note: FootnoteDetail, el: HTMLElement) => void;
   onFootnoteLeave: () => void;
   onFootnoteClick: (note: FootnoteDetail, el: HTMLElement) => void;
@@ -339,7 +383,13 @@ function VerseBlock({
   const segments = buildSegments(verse);
 
   return (
-    <div className="group py-2 px-3 -mx-3 rounded-lg hover:bg-stone-100/50 transition-colors">
+    <div
+      className={`group py-2 px-3 -mx-3 rounded-lg transition-all duration-300 ${
+        isReading
+          ? "bg-amber-50 ring-1 ring-amber-200 shadow-sm scale-[1.01]"
+          : "hover:bg-stone-100/50"
+      }`}
+    >
       <div className="flex gap-3">
         <span className="text-xs text-stone-300 font-mono mt-1 shrink-0 w-5 text-right select-none">
           {verse.number}
